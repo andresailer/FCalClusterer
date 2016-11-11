@@ -6,8 +6,7 @@ INCLUDE_DIRECTORIES ( ${CMAKE_SOURCE_DIR}/source/LumiCalReco/include )
 SET( BeamCalProcessor_SOURCE src/ReadBeamCal.cpp src/BeamCalClusterReco.cpp)
 
 #LumiCalReco Processors
-SET( LumiCalProcessor_SOURCE src/MarlinLumiCalClusterer.cc)
-
+SET( LumiCalProcessor_SOURCE src/MarlinLumiCalClusterer.cc src/FCalAna.cpp )
 
 IF( DD4hep_FOUND )
   SET( DD4hepProcessor_SOURCE src/DrawBeamCalFromDD4hep.cpp )
