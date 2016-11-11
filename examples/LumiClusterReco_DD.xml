@@ -2,6 +2,7 @@
   <execute>
     <processor name="MyInitializeDD4hep"/>
     <processor name="MyMarlinLumiCalClusterer"/>
+    <processor name="FCA" />
     <processor name="LCIOoutput" />
 
   </execute>
@@ -28,6 +29,17 @@
     <!--parameter name="Verbosity" type="string">DEBUG </parameter-->
   </processor>
 
+  <processor name="FCA" type="FCalAna">
+    <!--FCalAna reads MCParticles and Reconstructed Particles and fills them in to a root tree-->
+    <!--Name of MCParticle Collection-->
+    <parameter name="MCParticleCollection" type="string" lcioInType="MCParticle">MCParticle </parameter>
+    <!--Root OutputFile-->
+    <parameter name="RootFile" type="string">FCalAna.root </parameter>
+    <!--Name of ReconstructedParticle Collection-->
+    <parameter name="RecoParticleCollection" type="string" lcioInType="ReconstructedParticle">LumiCalRecoParticles </parameter>
+    <!--verbosity level of this processor ("DEBUG0-4,MESSAGE0-4,WARNING0-4,ERROR0-4,SILENT")-->
+    <parameter name="Verbosity" type="string">DEBUG </parameter>
+  </processor>
 
   <processor name="MyMarlinLumiCalClusterer" type="MarlinLumiCalClusterer">
     <!--whatever...-->
@@ -58,19 +70,19 @@
     <!-- fraction of number of hits in one arm found in one layer to consider this layer as the ShowerPeak layer-->
     <parameter name="ElementsPercentInShowerPeakLayer" type="double">0.03 </parameter>
     <!-- Sets minimum for logarithmic energy weights-->
-    <parameter name="LogWeigthConstant" type="double">6 </parameter>
+    <parameter name="LogWeigthConstant" type="double"> 4 </parameter>
     <!-- BP: see explanation in LumiCalClusterer.cpp-->
     <parameter name="MiddleEnergyHitBoundFrac" type="double">0.01 </parameter>
     <!-- Sets minimum energy deposit for cluster to be accepted [GeV]-->
-    <parameter name="MinClusterEngy" type="double">2 </parameter>
+    <parameter name="MinClusterEngy" type="double"> 2 </parameter>
     <!-- Calibration factor - converts cluster energy to primary
 	 particle energy ( E_cluster = EnrgyCalibConst*E_primary default value for LCal ILD )-->
-    <parameter name="EnergyCalibConst" type="double"> 0.01356 </parameter> 
+    <parameter name="EnergyCalibConst" type="double"> 0.01217 </parameter> <!-- (* 0.01356 0.8973) -->
     <!-- (* 0.0109 (/ 311 250.0)) -->
     <!-- Hit energy cut - minimum hit energy required [Gev] -->
-    <parameter  name="MinHitEnergy"  type="double">5e-06 </parameter>
+    <parameter  name="MinHitEnergy"  type="double"> 5e-06 </parameter>
     <!-- Moliere radius, controls clusters separation distance [mm]-->
-    <parameter name="MoliereRadius" type="double">16 </parameter>
+    <parameter name="MoliereRadius" type="double"> 20 </parameter>
     <!--Number of neighbor hits to consider -->
     <parameter name="NumOfNearNeighbor" type="int">6 </parameter>
     <!-- Choose cluster hit position weights LogMthod=-1 or simple EnergyMethod=1 -->
