@@ -11,13 +11,15 @@ TARGET_LINK_LIBRARIES(FCalUtils ${ROOT_LIBRARIES})
 ADD_EXECUTABLE( BCBackgroundPar src/BCBackgroundPar.cpp src/BackgroundFitter.cpp )
 TARGET_LINK_LIBRARIES( BCBackgroundPar FCalUtils )
 
-
 #Occupancies Executbale
 IF( DD4hep_FOUND )
   ADD_EXECUTABLE(Occupancies src/Occupancies.cpp)
   TARGET_LINK_LIBRARIES(Occupancies BeamCalReco FCalUtils)
   INSTALL(TARGETS Occupancies DESTINATION bin)
 ENDIF()
+
+ADD_EXECUTABLE( LCalTune src/LCalTune.cpp )
+TARGET_LINK_LIBRARIES( LCalTune ${ROOT_LIBRARIES} FCalUtils )
 
 IF ( CPPCHECK_FOUND )
   ADD_CPPCHECK( FCalUtils UNUSED_FUNCTIONS STYLE POSSIBLE_ERRORS FORCE FAIL_ON_WARNINGS)
