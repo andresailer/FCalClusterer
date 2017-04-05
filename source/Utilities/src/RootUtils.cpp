@@ -87,13 +87,12 @@ namespace RootUtils {
     }
   }
 
-  PDFFile::PDFFile(): fileOpened(false) {
+  PDFFile::PDFFile(): fileOpened(false), fileName("") {
     ++fileNumber;
     fileName = Form("myPDFFile_%i.pdf",fileNumber);
   }
 
-  PDFFile::PDFFile(TString filename):  fileOpened(false) {
-    fileName = filename;
+  PDFFile::PDFFile(TString filename):  fileOpened(false), fileName(filename) {
     ++fileNumber;
   }
 

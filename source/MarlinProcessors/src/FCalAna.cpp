@@ -68,7 +68,7 @@ FCalAna::FCalAna() : Processor("FCalAna"),
 void FCalAna::init() {
 
   Global::EVENTSEEDER->registerProcessor(this);
-  
+
   // usually a good idea to
   printParameters() ;
 
@@ -91,11 +91,11 @@ void FCalAna::init() {
 
 
 
- 
+
 }//init
 
 
-template< class T > double getTheta( T* p ){ 
+template< class T > double getTheta( T* p ){
 
   const double* mom = p->getMomentum();
 
@@ -107,7 +107,7 @@ template< class T > double getTheta( T* p ){
 template< class T > double getPhi( T* p ){
 
   const double* mom = p->getMomentum();
-  
+
   return std::atan2( mom[1], mom[0] );
 
 }
@@ -126,7 +126,6 @@ void FCalAna::processEvent( LCEvent * evt ) {
   try {
 
     mcParticles = evt->getCollection( m_mcParticleName ) ;
-    recoParticles= evt->getCollection( m_recoParticleName ) ;
 
   } catch (Exception &e) {
     streamlog_out( WARNING ) << "Not all needed collections present " << std::endl;
@@ -147,6 +146,16 @@ void FCalAna::processEvent( LCEvent * evt ) {
     break;
   }
 
+  try {
+
+    recoParticles= evt->getCollection( m_recoParticleName ) ;
+
+  } catch (Exception &e) {
+    streamlog_out( WARNING ) << "No reconstructed particles" << std::endl;
+    m_tree->Fill();
+    return;
+  }
+
 
   for (int iReco = 0; iReco < recoParticles->getNumberOfElements() ;++iReco) {
     ReconstructedParticle* p = static_cast<ReconstructedParticle*>(recoParticles->getElementAt(iReco));
@@ -155,11 +164,11 @@ void FCalAna::processEvent( LCEvent * evt ) {
     m_eReco = p->getEnergy();
     break;
   }
-  
+
 
 
   m_tree->Fill();
-    
+
   return;
 }//processEvent
 
