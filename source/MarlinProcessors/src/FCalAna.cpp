@@ -162,12 +162,23 @@ void FCalAna::processEvent(LCEvent* evt) {
     return;
   }
 
+  double maxRecoEnergy=0;
   for (int iReco = 0; iReco < recoParticles->getNumberOfElements(); ++iReco) {
     ReconstructedParticle* p = static_cast<ReconstructedParticle*>(recoParticles->getElementAt(iReco));
+
+    //find highest energy reconstructed particle, not just the first
+    if (p->getEnergy() < maxRecoEnergy) {
+      continue;
+    }
+
     m_thetaReco              = getTheta(p);
     m_phiReco                = getPhi(p);
     m_eReco                  = p->getEnergy();
 
+    std::cout << "Found bigger energy " << m_eReco  << std::endl;
+    maxRecoEnergy = m_eReco;
+
+    m_thetaLog.clear();
     auto& clusters = p->getClusters();
     for (auto* clu : clusters) {
       auto const& position  = getClusterPosition(clu);
@@ -181,7 +192,6 @@ void FCalAna::processEvent(LCEvent* evt) {
       m_thetaE = getTheta(positionE);
     }
 
-    break;
   }
 
   m_tree->Fill();

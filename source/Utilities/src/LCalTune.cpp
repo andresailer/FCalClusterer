@@ -226,7 +226,7 @@ int main(int, char**) {
 
   // energies = {10, 100, 1000};
 
-  //energies = {1500};
+  energies = {1500};
 
   //TF1 thetaGauss("thetaGauss", fitGauss, -0.03, 0.03, 3);
   //TF1 phiGauss("phiGauss", fitGauss, -0.3, 0.3, 3);
