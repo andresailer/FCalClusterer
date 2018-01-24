@@ -10,9 +10,11 @@
 
 #include <TCanvas.h>
 #include <TEfficiency.h>
+#include <TError.h>
 #include <TF1.h>
 #include <TFile.h>
 #include <TFitResult.h>
+#include <TGraphAsymmErrors.h>
 #include <TGraphErrors.h>
 #include <TH1D.h>
 #include <TH2D.h>
@@ -21,7 +23,6 @@
 #include <TString.h>
 #include <TStyle.h>
 #include <TTree.h>
-#include "TError.h"
 
 #include <sys/stat.h>
 
@@ -59,9 +60,9 @@ TEfficiency* angleEff(int energy) {
 
 const double legendEntryHeight(0.0625);
 
-void drawEfficiencies(RootUtils::PDFFile&, Efficiencies& efficiencies);
+void drawEfficiencies(RootUtils::PDFFile&, Efficiencies& efficiencies, std::string const& legendHeader);
 void drawEnergyResolutionFunction(RootUtils::PDFFile&, VecD& selectedEnergyEnergy, VecD& selectedSigmaEoverE,
-                                  VecD& selectedSigmaEoverEErr, TF1&);
+                                  VecD& selectedSigmaEoverEErr, TF1&, std::string const& legendHeader);
 
 constexpr size_t THETALOG_SIZE  = 100;
 constexpr size_t THETALOG_START = 30;
@@ -188,8 +189,8 @@ Results* makeResults(double energy, double mradAngle, TString filename, TEfficie
     }
     pHisto->Fill(phiReco - phiMC);
 
-    // wihthin ten percent
-    eff->Fill(fabs((eReco - eMC) / eMC) < 0.1, mradAngle);
+    // energy wihthin ten percent, theta within 1 percent
+    eff->Fill(fabs((eReco - eMC) / eMC) < 0.1 && fabs((thetaReco - thetaMC) / thetaMC) < 0.01, mradAngle);
   }
 
   file->Close();
@@ -204,29 +205,52 @@ double fitResolution(double* x, double* p) {
   return p[0] / sqrt(x[0]);  // + p[1];
 }
 
-int main(int, char**) {
+void getThetaFromFit(TH1* tHisto, double& mean, double& rms, int const /*iAngle*/) {
+  TF1 thetaGauss("thetaGauss", fitGauss, -0.1e-4, 0.1e-4, 3);
+  thetaGauss.SetParameter(0, tHisto->GetMean());
+  thetaGauss.SetParameter(1, tHisto->GetRMS());
+  thetaGauss.SetParameter(2, tHisto->GetBinContent(tHisto->GetMaximumBin()));
+  auto thetaFitresultptr = tHisto->Fit(&thetaGauss, "QS", "");
+  if (int(thetaFitresultptr) == 0) {
+    mean = thetaGauss.GetParameter(0);
+    rms  = thetaGauss.GetParameter(1);
+    mean = thetaFitresultptr.Get()->Parameter(0);
+    rms  = thetaFitresultptr.Get()->Parameter(1);
+  } else {
+    mean = tHisto->GetMean();
+    rms  = tHisto->GetRMS();
+  }
+}
+
+int main(int argc, char** args) {  //
   RootUtils::SetStyle();
   RootUtils::PDFFile pdf("LCalTune_1500.pdf");
-  const bool         allHistograms = true;
+  const bool         allHistograms = false;
   std::map<int, std::map<int, Results*>> histograms;
   Efficiencies efficiencies;
-//  std::vector<int> energies = {10, 20, 30, 50, 100, 150, 500};
 //#include "LCalTune_SmallSet.h"
 //#include "LCalTune_FullSet.h"
-//#include "LCalTune_Compare.h"
+#include "LCalTune_Compare.h"
 
-  std::vector<int> energies = {1500};
+  std::string legendHeader = "Without Background";
+  if (argc >= 2) {
+    legendHeader = std::string(args[1]);
+  }
+  std::cout << "LegendHeader to add " << legendHeader << std::endl;
 
-  std::vector<std::string> angles = {"0.0625", "0.0626", "0.0627", "0.0628", "0.0629", "0.063",  "0.0631",
-                                     "0.0632", "0.0633", "0.0634", "0.0635", "0.0636", "0.0637", "0.0638",
-                                     "0.0639", "0.064",  "0.0641", "0.0642", "0.0643", "0.0644", "0.0645",
-                                     "0.0646", "0.0647", "0.0648", "0.0649", "0.065"};
+  //std::vector<int> energies = {1500};
+  std::vector<int> energies = {10, 20, 30, 50, 100, 150, 500, 1000, 1500};
+
+  // std::vector<std::string> angles = {"0.0625", "0.0626", "0.0627", "0.0628", "0.0629", "0.063",  "0.0631",
+  //                                    "0.0632", "0.0633", "0.0634", "0.0635", "0.0636", "0.0637", "0.0638",
+  //                                    "0.0639", "0.064",  "0.0641", "0.0642", "0.0643", "0.0644", "0.0645",
+  //                                    "0.0646", "0.0647", "0.0648", "0.0649", "0.065"};
 
   //#include "LCalTune_HESet.h"
 
   // energies = {10, 100, 1000};
 
-  energies = {1500};
+  //energies = {1500};
 
   //TF1 thetaGauss("thetaGauss", fitGauss, -0.03, 0.03, 3);
   //TF1 phiGauss("phiGauss", fitGauss, -0.3, 0.3, 3);
@@ -335,8 +359,9 @@ int main(int, char**) {
 
         {  /// theta resolutions
           TH1D*  tHisto = results->hs["tRes"];
-          double mean(tHisto->GetMean());
-          double rms(tHisto->GetRMS());
+          double mean(-10), rms(-10);
+          getThetaFromFit(tHisto, mean, rms, iAngle);
+
           tMeans.push_back(mean * 1000);
           tRMS.push_back(rms * 1000);
           tAngles.push_back(double(iAngle) / double(TO_MRAD_CONVERSION));
@@ -361,8 +386,9 @@ int main(int, char**) {
         {  /// theta resolutions
           for (size_t i = THETALOG_START; i < THETALOG_SIZE; ++i) {
             TH1D*  tHisto = results->hs[Form("tResL%i", int(i))];
-            double mean(tHisto->GetMean());
-            double rms(tHisto->GetRMS());
+            double mean(-10), rms(-10);
+            getThetaFromFit(tHisto, mean, rms, iAngle);
+
             tMeansL[i].push_back(mean * 1000);
             tRMSL[i].push_back(rms * 1000);
           }
@@ -422,8 +448,8 @@ int main(int, char**) {
 
         const double legStartX_G(0.2);
         const double startY(0.9);
-        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - (2) * legendEntryHeight);
-        RootUtils::AddLegendHeader(leg, {"Relative Reconstructed Energy"});
+        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - 3 * legendEntryHeight);
+        RootUtils::AddLegendHeader(leg, {legendHeader, "Relative Reconstructed Energy"});
 
         std::cout << "Fitting energy diff: " << energy << std::endl;
         auto fitresultptr = resolutions.Fit("pol0", "S", "", fiducialMinimum, fiducialMaximum);
@@ -460,8 +486,8 @@ int main(int, char**) {
 
         const double legStartX_G(0.2);
         const double startY(0.9);
-        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - (2) * legendEntryHeight);
-        RootUtils::AddLegendHeader(leg, {"Energy Resolution"});
+        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - 3 * legendEntryHeight);
+        RootUtils::AddLegendHeader(leg, {legendHeader, "Energy Resolution"});
 
         auto fitresultptr = resolutions.Fit("pol0", "S", "", fiducialMinimum, fiducialMaximum);
         if (int(fitresultptr) == 0) {
@@ -525,10 +551,10 @@ int main(int, char**) {
 
           const double legStartX_G(0.2);
           const double startY(0.9);
-          auto*        leg =
-              RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - (4) * legendEntryHeight);
+          auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - 5 * legendEntryHeight);
           RootUtils::SetEntryOptions(leg, "p");
-          RootUtils::AddLegendHeader(leg, {Form("%d GeV", energy), Form("logConstant = %1.1f", double(i) / 10.0)});
+          RootUtils::AddLegendHeader(leg,
+                                     {legendHeader, Form("%d GeV", energy), Form("logConstant = %1.1f", double(i) / 10.0)});
 
           canvR.SaveAs(Form("ThetaVsAngle_%d.eps", energy));
           pdf.AddCanvas(canvR, Form("%i Theta Res vs. Angle: %d GeV", int(i), energy));
@@ -558,9 +584,9 @@ int main(int, char**) {
 
         const double legStartX_G(0.2);
         const double startY(0.9);
-        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - (3) * legendEntryHeight);
+        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - 4 * legendEntryHeight);
         RootUtils::SetEntryOptions(leg, "p");
-        RootUtils::AddLegendHeader(leg, {Form("%d GeV, Log Constant: 6.1", energy)});
+        RootUtils::AddLegendHeader(leg, {legendHeader, Form("%d GeV, Log Constant: 6.1", energy)});
 
         canvR.SaveAs(Form("ThetaResVsAngle_%d.eps", energy));
         pdf.AddCanvas(canvR, Form("Theta Res vs. Angle: %d GeV", energy));
@@ -586,8 +612,8 @@ int main(int, char**) {
 
         const double legStartX_G(0.2);
         const double startY(0.9);
-        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - (2) * legendEntryHeight);
-        RootUtils::AddLegendHeader(leg, {"Phi Bias"});
+        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - 3 * legendEntryHeight);
+        RootUtils::AddLegendHeader(leg, {legendHeader, "Phi Bias"});
 
         canvR.SaveAs(Form("PhiBiasVsAngle_%d.eps", energy));
         pdf.AddCanvas(canvR, Form("Phi Bias vs. Angle: %d GeV", energy));
@@ -609,8 +635,8 @@ int main(int, char**) {
 
         const double legStartX_G(0.2);
         const double startY(0.9);
-        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - (2) * legendEntryHeight);
-        RootUtils::AddLegendHeader(leg, {"Phi Resolution"});
+        auto* leg = RootUtils::BuildLegend(canvR, legStartX_G, startY, legStartX_G + 0.3, startY - 3 * legendEntryHeight);
+        RootUtils::AddLegendHeader(leg, {legendHeader, "Phi Resolution"});
 
         canvR.SaveAs(Form("PhiResVsAngle_%d.eps", energy));
         pdf.AddCanvas(canvR, Form("Phi Res vs. Angle: %d GeV", energy));
@@ -635,8 +661,8 @@ int main(int, char**) {
       resolutions.Fit("pol1");
       resolutions.SetTitle(" Linearity ");
       const double startY(0.9), legStartX(0.2);
-      auto* leg = RootUtils::BuildLegend(canvER, legStartX, startY, legStartX + 0.3, startY - (1 + 2) * legendEntryHeight);
-      RootUtils::AddLegendHeader(leg, {"Reconstructed Energy", "#theta #in [62, 77] mrad"});
+      auto* leg = RootUtils::BuildLegend(canvER, legStartX, startY, legStartX + 0.3, startY - (1 + 3) * legendEntryHeight);
+      RootUtils::AddLegendHeader(leg, {legendHeader, "Reconstructed Energy", "#theta #in [62, 77] mrad"});
       IgnoreError IE;
       pdf.AddCanvas(canvER, "Energy Resolution vs. Energy");
       canvER.SaveAs("ERes.eps");
@@ -656,15 +682,15 @@ int main(int, char**) {
       resolutions.GetYaxis()->SetTitleOffset(1.31);
       resolutions.SetTitle("Relative Bias");
       const double startY(0.9), legStartX(0.2);
-      auto* leg = RootUtils::BuildLegend(canvER, legStartX, startY, legStartX + 0.3, startY - (1 + 2) * legendEntryHeight);
-      RootUtils::AddLegendHeader(leg, {"Reconstructed Energy", "#theta #in [62, 77] mrad"});
+      auto* leg = RootUtils::BuildLegend(canvER, legStartX, startY, legStartX + 0.3, startY - (1 + 3) * legendEntryHeight);
+      RootUtils::AddLegendHeader(leg, {legendHeader, "Reconstructed Energy", "#theta #in [62, 77] mrad"});
       IgnoreError IE;
       pdf.AddCanvas(canvER, "Energy Resolution vs. Energy");
       canvER.SaveAs("EResDiff.eps");
     }
   }
 
-  drawEnergyResolutionFunction(pdf, selectedEnergyEnergy, selectedSigmaEoverE, selectedSigmaEoverEErr, fitRes);
+  drawEnergyResolutionFunction(pdf, selectedEnergyEnergy, selectedSigmaEoverE, selectedSigmaEoverEErr, fitRes, legendHeader);
 
   if (allHistograms) {
     for (auto const& pIntMapIntResults : histograms) {
@@ -891,7 +917,7 @@ int main(int, char**) {
     }
   }  //Phi related histograms
 
-  drawEfficiencies(pdf, efficiencies);
+  drawEfficiencies(pdf, efficiencies, legendHeader);
 
   /// Finish the pdf file with an empty slide to keep the last title
   TCanvas empty("e", "e");
@@ -900,17 +926,23 @@ int main(int, char**) {
   return 0;
 }
 
-void drawEfficiencies(RootUtils::PDFFile& pdf, Efficiencies& efficiencies) {
+void drawEfficiencies(RootUtils::PDFFile& pdf, Efficiencies& efficiencies, std::string const& legendHeader) {
   for (auto& pIntEfficiency : efficiencies) {
     const int energy = pIntEfficiency.first;
     TCanvas   canv("cE", "cE");
+
     pIntEfficiency.second->Draw();
+    canv.Update();
+    auto* graph = pIntEfficiency.second->GetPaintedGraph();
+    graph->SetMinimum(0.8);
+    graph->SetMaximum(1.13);
+    canv.Update();
 
     IgnoreError  IE;
-    const double startY    = 0.4;
+    const double startY    = 0.9;
     const double legStartX = 0.2;
-    RootUtils::BuildLegend(canv, legStartX, startY, legStartX + 0.3, startY - (1) * legendEntryHeight);
-    //RootUtils::AddLegendHeader( leg, {Form("%d GeV", energy )} );
+    auto         leg = RootUtils::BuildLegend(canv, legStartX, startY, legStartX + 0.3, startY - (3) * legendEntryHeight);
+    RootUtils::AddLegendHeader(leg, {legendHeader, "#DeltaE/E < 0.1, #Delta#theta/#theta < 0.01"});
     TString title = Form("Reconstruction Efficiency %d GeV", energy);
     pdf.AddCanvas(canv, title);
     TString filename = Form("RecoEff%d.eps", energy);
@@ -921,7 +953,7 @@ void drawEfficiencies(RootUtils::PDFFile& pdf, Efficiencies& efficiencies) {
 
 /// draw the sigmaE/E function prop to a/sqrt(E)
 void drawEnergyResolutionFunction(RootUtils::PDFFile& pdf, VecD& selectedEnergyEnergy, VecD& selectedSigmaEoverE,
-                                  VecD& selectedSigmaEoverEErr, TF1& fitRes) {
+                                  VecD& selectedSigmaEoverEErr, TF1& fitRes, std::string const& legendHeader) {
   if (not selectedEnergyEnergy.empty()) {
     TCanvas             canvER("cER", "cER");
     std::vector<double> zeros(selectedEnergyEnergy.size(), 0.0);
@@ -935,8 +967,8 @@ void drawEnergyResolutionFunction(RootUtils::PDFFile& pdf, VecD& selectedEnergyE
     resolutions.SetMarkerStyle(kOpenStar);
     resolutions.SetTitle("Selected Angles");
     const double startY(0.9), legStartX(0.3);
-    auto*        leg = RootUtils::BuildLegend(canvER, legStartX, startY, legStartX + 0.3, startY - (3) * legendEntryHeight);
-    RootUtils::AddLegendHeader(leg, {"Energy Resolution", "a/#sqrt{E}"});
+    auto*        leg = RootUtils::BuildLegend(canvER, legStartX, startY, legStartX + 0.3, startY - (4) * legendEntryHeight);
+    RootUtils::AddLegendHeader(leg, {legendHeader, "Energy Resolution", "a/#sqrt{E}"});
     IgnoreError IE;
     pdf.AddCanvas(canvER, "SigmaE/E");
     canvER.SaveAs("EResFunc.eps");
