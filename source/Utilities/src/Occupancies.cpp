@@ -28,28 +28,36 @@
 
 using VD=std::vector<double>;
 
-void calculateOccupancy(std::string& detectorName, std::string& compactFile, double threshold,
-                        std::vector<std::string> const& backgroundFiles);
-void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, double threshold, int& nBX, double& totalEnergyBX);
-void drawOccupancy(std::string const& detectorName, BeamCalGeo const& bcg,
-                   std::string const& name, BCPadEnergies const& bcp);
+struct Parameters {
+  double minZRange = 1e-4;
+  double maxZRange = 1.0;
+};
 
+void calculateOccupancy(std::string& detectorName, std::string& compactFile, double threshold,
+                        std::vector<std::string> const& backgroundFiles, const Parameters& par);
+void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, double threshold, int& nBX, double& totalEnergyBX);
+void drawOccupancy(std::string const& detectorName, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp,
+                   const Parameters& par);
 
 int main (int argc, char **args) {
-
-  if(argc < 4) {
-    std::cout << "Not enough arguments "
-              << "Occupancies [BeamCal|LumiCal] <Threshold[GeV]> compactFile Background1.root [Background2.root ...]"
-              << std::endl;
+  if (argc < 6) {
+    std::cout
+        << "Not enough arguments "
+        << "Occupancies [BeamCal|LumiCal] <Threshold[GeV]> MinZ MaxZ compactFile Background1.root [Background2.root ...]"
+        << std::endl;
     return 1;
   }
 
+  Parameters par;
+
   std::string detectorName = std::string(args[1]);
-  std::string compactFile =  std::string(args[3]);
   double threshold = std::atof(args[2]);
+  par.minZRange = std::atof(args[3]);
+  par.maxZRange = std::atof(args[4]);
+  std::string compactFile = std::string(args[5]);
 
   std::vector<std::string> backgroundFiles{};
-  for (int i = 4; i < argc ;++i) {
+  for (int i = 6; i < argc; ++i) {
     backgroundFiles.emplace_back(args[i]);
   }
 
@@ -57,7 +65,7 @@ int main (int argc, char **args) {
   RootUtils::SetStyle();
 
   try{
-    calculateOccupancy(detectorName, compactFile, threshold, backgroundFiles);
+    calculateOccupancy(detectorName, compactFile, threshold, backgroundFiles, par);
   } catch(std::exception &e) {
     std::cout << "Exception " << e.what()  << std::endl;
     return 1;
@@ -65,10 +73,8 @@ int main (int argc, char **args) {
 
 }
 
-
 void calculateOccupancy(std::string& detectorName, std::string& compactFile, double threshold,
-                        std::vector<std::string> const& backgroundFiles) {
-
+                        std::vector<std::string> const& backgroundFiles, Parameters const& par) {
   dd4hep::Detector& theDetector = dd4hep::Detector::getInstance();
   theDetector.fromCompact(compactFile);
 
@@ -104,15 +110,15 @@ void calculateOccupancy(std::string& detectorName, std::string& compactFile, dou
   left.setEnergies(countLeft);
   right.setEnergies(countRight);
 
-  drawOccupancy(detectorName, bcg, "Left", left);
-  drawOccupancy(detectorName, bcg, "Right", right);
+  drawOccupancy(detectorName, bcg, "Left", left, par);
+  drawOccupancy(detectorName, bcg, "Right", right, par);
 
   std::cout << "Total Energy deposit per BX in _one_ Detector: " << totalEnergy << " GeV" << std::endl;
 
 }
 
-void drawOccupancy(std::string const& detectorName, BeamCalGeo const& bcg,
-                   std::string const& name, BCPadEnergies const& bcp) {
+void drawOccupancy(std::string const& detectorName, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp,
+                   const Parameters& par) {
   TCanvas canv("cB", "cB", 800, 700);
   canv.SetRightMargin(0.21);
   canv.SetLeftMargin(0.15);
@@ -134,6 +140,7 @@ void drawOccupancy(std::string const& detectorName, BeamCalGeo const& bcg,
   canv.Update();
   RootUtils::MovePaletteHorizontally(&occupancyHisto, 0.0);
   occupancyHisto.GetZaxis()->SetLabelOffset(-0.01);
+  occupancyHisto.GetZaxis()->SetRangeUser(par.minZRange, par.maxZRange);
   gPad->Update();
   canv.Modified();
   canv.Update();
