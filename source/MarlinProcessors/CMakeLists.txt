@@ -1,5 +1,5 @@
 ## BeamCalReco Processors
-SET( BeamCalProcessor_SOURCE src/ReadBeamCal.cpp src/BeamCalClusterReco.cpp)
+SET( BeamCalProcessor_SOURCE src/ReadBeamCal.cpp src/BeamCalClusterReco.cpp src/AverageCollections.cpp)
 
 #LumiCalReco Processors
 SET( LumiCalProcessor_SOURCE src/MarlinLumiCalClusterer.cc)
