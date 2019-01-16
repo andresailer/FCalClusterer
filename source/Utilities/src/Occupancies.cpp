@@ -31,13 +31,16 @@ using VD=std::vector<double>;
 struct Parameters {
   double minZRange = 1e-4;
   double maxZRange = 1.0;
+  double threshold = 0.0;
+  std::string detectorName = "BeamCal";
+  std::string compactFile = "";
+  std::vector<std::string> backgroundFiles{};
 };
 
-void calculateOccupancy(std::string& detectorName, std::string& compactFile, double threshold,
-                        std::vector<std::string> const& backgroundFiles, const Parameters& par);
-void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, double threshold, int& nBX, double& totalEnergyBX);
-void drawOccupancy(std::string const& detectorName, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp,
-                   const Parameters& par);
+void calculateOccupancy(const Parameters& par);
+void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, double threshold, int maxEPad,
+                        int& nBX, double& totalEnergyBX, double& occupancyBX, double& maxEnergy);
+void drawOccupancy(const Parameters& par, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp);
 
 int main (int argc, char **args) {
   if (argc < 6) {
@@ -50,22 +53,20 @@ int main (int argc, char **args) {
 
   Parameters par;
 
-  std::string detectorName = std::string(args[1]);
-  double threshold = std::atof(args[2]);
+  par.detectorName = std::string(args[1]);
+  par.threshold = std::atof(args[2]);
   par.minZRange = std::atof(args[3]);
   par.maxZRange = std::atof(args[4]);
-  std::string compactFile = std::string(args[5]);
-
-  std::vector<std::string> backgroundFiles{};
+  par.compactFile = std::string(args[5]);
   for (int i = 6; i < argc; ++i) {
-    backgroundFiles.emplace_back(args[i]);
+    par.backgroundFiles.emplace_back(args[i]);
   }
 
 
   RootUtils::SetStyle();
 
   try{
-    calculateOccupancy(detectorName, compactFile, threshold, backgroundFiles, par);
+    calculateOccupancy(par);
   } catch(std::exception &e) {
     std::cout << "Exception " << e.what()  << std::endl;
     return 1;
@@ -73,52 +74,66 @@ int main (int argc, char **args) {
 
 }
 
-void calculateOccupancy(std::string& detectorName, std::string& compactFile, double threshold,
-                        std::vector<std::string> const& backgroundFiles, Parameters const& par) {
+void calculateOccupancy(Parameters const& par) {
   dd4hep::Detector& theDetector = dd4hep::Detector::getInstance();
-  theDetector.fromCompact(compactFile);
+  theDetector.fromCompact(par.compactFile);
 
-  BeamCalGeoDD bcg(theDetector, detectorName, detectorName+"Collection");
+  BeamCalGeoDD bcg(theDetector, par.detectorName, par.detectorName + "Collection");
 
-  int nBX(0);
+  int nBX(0), maxPad(0), maxEPad(0);
   int nPads = bcg.getPadsPerBeamCal();
   VD countLeft(nPads, 0), countRight(nPads, 0);
-  double totalEnergy(0.0);
+  double totalEnergy(0.0), maxOccupancy(0.0), averageOccypancy(0.0), maxEnergy(0.0);
 
-  std::cout << "Have " << backgroundFiles.size() << " Files"  << std::endl;
-  for (auto const& backgroundFile: backgroundFiles ) {
+  std::cout << "Have " << par.backgroundFiles.size() << " Files" << std::endl;
+  for (auto const& backgroundFile : par.backgroundFiles) {
     double totalEnergyBX = 0.0;
-    readBackgroundFile(backgroundFile, countLeft, countRight, threshold, nBX, totalEnergyBX);
+    double occupancyBX = 0;
+    readBackgroundFile(backgroundFile, countLeft, countRight, par.threshold, maxEPad, nBX, totalEnergyBX, occupancyBX,
+                       maxEnergy);
     totalEnergy += totalEnergyBX;
+    averageOccypancy += occupancyBX;
   }
 
   std::cout << "Have " << nBX << " bunch crossings"  << std::endl;
   std::cout << "Have " << countLeft.size() << " pads"  << std::endl;
 
-  //Calculate average occupancy given threshold, loop over all pads and all
-  //bunch crossings and count values above threshold why store all the values
-  //and not directly count things above threshold?
-
+  //Calculate average occupancy given threshold
   totalEnergy /= (double(nBX)*2.0); //counting both sides
   for (size_t nPad = 0; nPad < countLeft.size();++nPad) {
+    if (countLeft[nPad] > maxOccupancy || countRight[nPad] > maxOccupancy) {
+      maxOccupancy = std::max(countLeft[nPad], std::max(countRight[nPad], maxOccupancy));
+      maxPad = nPad;
+    }
     countLeft[nPad] /= double(nBX);
     countRight[nPad] /= double(nBX);
   }
 
   BCPadEnergies left(bcg), right(bcg);
 
+  averageOccypancy /= double(nPads);
+  averageOccypancy /= double(nBX);
+
   left.setEnergies(countLeft);
   right.setEnergies(countRight);
 
-  drawOccupancy(detectorName, bcg, "Left", left, par);
-  drawOccupancy(detectorName, bcg, "Right", right, par);
+  drawOccupancy(par, bcg, "Left", left);
+  drawOccupancy(par, bcg, "Right", right);
 
+  std::cout << "******************************************************************************" << std::endl;
+  std::cout << "\t\t\t" << par.detectorName << std::endl;
   std::cout << "Total Energy deposit per BX in _one_ Detector: " << totalEnergy << " GeV" << std::endl;
+  std::cout << "Total Energy deposit in pad " << maxEPad << ": " << maxEnergy << " GeV" << std::endl;
 
+  std::cout << "Maximum occupancy in pad " << maxPad << " with " << maxOccupancy << " entries"
+            << " in " << nBX << " bunch crossings" << std::endl;
+  std::cout << "Maximum occupancy in pad " << maxPad << " with " << 100.0 * maxOccupancy / double(nBX) << "% of BX"
+            << std::endl;
+  std::cout << "Average occupancy " << 100.0 * averageOccypancy << "% of pads per BX" << std::endl;
+  std::cout << "******************************************************************************" << std::endl;
 }
 
-void drawOccupancy(std::string const& detectorName, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp,
-                   const Parameters& par) {
+void drawOccupancy(const Parameters& par, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp) {
   TCanvas canv("cB", "cB", 800, 700);
   canv.SetRightMargin(0.21);
   canv.SetLeftMargin(0.15);
@@ -144,13 +159,12 @@ void drawOccupancy(std::string const& detectorName, BeamCalGeo const& bcg, std::
   gPad->Update();
   canv.Modified();
   canv.Update();
-  canv.SaveAs(Form("%s_%sOccupancies.eps", detectorName.c_str(), name.c_str()));
-  canv.SaveAs(Form("%s_%sOccupancies.C", detectorName.c_str(), name.c_str()));
-
+  canv.SaveAs(Form("%s_%sOccupancies.eps", par.detectorName.c_str(), name.c_str()));
+  canv.SaveAs(Form("%s_%sOccupancies.C", par.detectorName.c_str(), name.c_str()));
 }
 
-
-void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, double threshold, int& nBX, double& totalEnergyBX){
+void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, double threshold, int maxEPad,
+                        int& nBX, double& totalEnergyBX, double& occupancyBX, double& maxEnergy) {
   TTree* tree;
   VD *depLeft=NULL;
   VD *depRight=NULL;
@@ -177,13 +191,22 @@ void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& co
     for (size_t nPad = 0; nPad < countLeft.size();++nPad) {
       totalEnergyBX += (*depLeft)[nPad];
       totalEnergyBX += (*depRight)[nPad];
+
+      if (int(nPad) == maxEPad) {
+        maxEnergy += (*depLeft)[nPad];
+        maxEnergy += (*depRight)[nPad];
+      }
+
       if((*depLeft)[nPad] > threshold) {
         countLeft[nPad] += 1;
+        occupancyBX += 1;
       }
       if((*depRight)[nPad] > threshold) {
         countRight[nPad] += 1;
+        occupancyBX += 1;
       }
     }
   }
+  occupancyBX /= 2.0;
   file->Close();
 }
