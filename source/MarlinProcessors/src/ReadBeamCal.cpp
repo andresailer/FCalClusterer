@@ -58,8 +58,9 @@ ReadBeamCal::ReadBeamCal()
       m_bcg(nullptr),
       m_usingDD4HEP(false) {
   // modify processor description
-  _description = "ReadBeamCal reads the simulation for the pairs and creates two std::vector<double> in a tree, which can then be used later on for Overlay, calculation of fluctiuations, etc." ;
-
+  _description =
+      "ReadBeamCal reads the simulation for the pairs and creates two std::vector<double> in a tree, which can then be used "
+      "later on for Overlay, calculation of fluctuations, etc.";
 
   // register steering parameters: name, description, class-variable, default value
 
