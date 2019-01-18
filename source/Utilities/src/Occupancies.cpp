@@ -28,26 +28,57 @@
 
 using VD=std::vector<double>;
 
+class VVD {
+private:
+  std::map<int, VD> m_vvd{};
+  int m_vecSize;
+
+public:
+  VD& operator[](int selection) {
+    if (m_vvd.find(selection) == m_vvd.end()) {
+      m_vvd[selection] = VD(m_vecSize);
+    }
+    return m_vvd[selection];
+  }
+  explicit VVD(int vecSize) : m_vecSize(vecSize) {}
+
+  void getOccupancy() const {
+    int occupied = 0;
+    int trainPads = 0;
+    for (auto const& vd : m_vvd) {
+      for (auto const& pad : vd.second) {
+        occupied += pad;
+        trainPads += 1;
+      }
+    }
+    std::cout << "Occupied Per Train: " << double(occupied) / double(m_vvd.size()) << std::endl;
+    std::cout << "Train Occupancy is: " << double(occupied) / double(trainPads) << std::endl;
+    std::cout << "NTrains: " << m_vvd.size() << std::endl;
+  }
+};
+
 struct Parameters {
   double minZRange = 1e-4;
   double maxZRange = 1.0;
   double threshold = 0.0;
+  int bxPerTrain = 0.0;
   std::string detectorName = "BeamCal";
   std::string compactFile = "";
   std::vector<std::string> backgroundFiles{};
 };
 
 void calculateOccupancy(const Parameters& par);
-void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, double threshold, int maxEPad,
-                        int& nBX, double& totalEnergyBX, double& occupancyBX, double& maxEnergy);
+void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, VVD& trainLeft, VVD& trainRight,
+                        int bxPerTrain, double threshold, int maxEPad, int& nBX, double& totalEnergyBX, double& occupancyBX,
+                        double& maxEnergy);
 void drawOccupancy(const Parameters& par, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp);
 
 int main (int argc, char **args) {
   if (argc < 6) {
-    std::cout
-        << "Not enough arguments "
-        << "Occupancies [BeamCal|LumiCal] <Threshold[GeV]> MinZ MaxZ compactFile Background1.root [Background2.root ...]"
-        << std::endl;
+    std::cout << "Not enough arguments "
+              << "Occupancies [BeamCal|LumiCal] <Threshold[GeV]> MinZ MaxZ BXPerTrain compactFile  Background1.root "
+                 "[Background2.root ...]"
+              << std::endl;
     return 1;
   }
 
@@ -57,8 +88,9 @@ int main (int argc, char **args) {
   par.threshold = std::atof(args[2]);
   par.minZRange = std::atof(args[3]);
   par.maxZRange = std::atof(args[4]);
-  par.compactFile = std::string(args[5]);
-  for (int i = 6; i < argc; ++i) {
+  par.bxPerTrain = std::atoi(args[5]);
+  par.compactFile = std::string(args[6]);
+  for (int i = 7; i < argc; ++i) {
     par.backgroundFiles.emplace_back(args[i]);
   }
 
@@ -80,19 +112,25 @@ void calculateOccupancy(Parameters const& par) {
 
   BeamCalGeoDD bcg(theDetector, par.detectorName, par.detectorName + "Collection");
 
+  const int maxFullTrainBXs(int(par.backgroundFiles.size() / par.bxPerTrain) * par.bxPerTrain);
+  std::cout << "Limiting to " << maxFullTrainBXs << " BXs" << std::endl;
   int nBX(0), maxPad(0), maxEPad(0);
   int nPads = bcg.getPadsPerBeamCal();
   VD countLeft(nPads, 0), countRight(nPads, 0);
+  VVD trainLeft(nPads), trainRight(nPads);
   double totalEnergy(0.0), maxOccupancy(0.0), averageOccypancy(0.0), maxEnergy(0.0);
 
   std::cout << "Have " << par.backgroundFiles.size() << " Files" << std::endl;
   for (auto const& backgroundFile : par.backgroundFiles) {
     double totalEnergyBX = 0.0;
     double occupancyBX = 0;
-    readBackgroundFile(backgroundFile, countLeft, countRight, par.threshold, maxEPad, nBX, totalEnergyBX, occupancyBX,
-                       maxEnergy);
+    readBackgroundFile(backgroundFile, countLeft, countRight, trainLeft, trainRight, par.bxPerTrain, par.threshold, maxEPad,
+                       nBX, totalEnergyBX, occupancyBX, maxEnergy);
     totalEnergy += totalEnergyBX;
     averageOccypancy += occupancyBX;
+
+    if (nBX == maxFullTrainBXs)
+      break;
   }
 
   std::cout << "Have " << nBX << " bunch crossings"  << std::endl;
@@ -130,6 +168,9 @@ void calculateOccupancy(Parameters const& par) {
   std::cout << "Maximum occupancy in pad " << maxPad << " with " << 100.0 * maxOccupancy / double(nBX) << "% of BX"
             << std::endl;
   std::cout << "Average occupancy " << 100.0 * averageOccypancy << "% of pads per BX" << std::endl;
+
+  trainLeft.getOccupancy();
+  trainRight.getOccupancy();
   std::cout << "******************************************************************************" << std::endl;
 }
 
@@ -163,8 +204,9 @@ void drawOccupancy(const Parameters& par, BeamCalGeo const& bcg, std::string con
   canv.SaveAs(Form("%s_%sOccupancies.C", par.detectorName.c_str(), name.c_str()));
 }
 
-void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, double threshold, int maxEPad,
-                        int& nBX, double& totalEnergyBX, double& occupancyBX, double& maxEnergy) {
+void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, VVD& trainLeft, VVD& trainRight,
+                        int bxPerTrain, double threshold, int maxEPad, int& nBX, double& totalEnergyBX, double& occupancyBX,
+                        double& maxEnergy) {
   TTree* tree;
   VD *depLeft=NULL;
   VD *depRight=NULL;
@@ -199,10 +241,12 @@ void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& co
 
       if((*depLeft)[nPad] > threshold) {
         countLeft[nPad] += 1;
+        trainLeft[(nBX - 1) / bxPerTrain][nPad] = 1;
         occupancyBX += 1;
       }
       if((*depRight)[nPad] > threshold) {
         countRight[nPad] += 1;
+        trainRight[(nBX - 1) / bxPerTrain][nPad] = 1;
         occupancyBX += 1;
       }
     }
