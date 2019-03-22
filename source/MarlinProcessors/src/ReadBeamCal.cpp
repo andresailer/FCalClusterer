@@ -49,8 +49,6 @@ ReadBeamCal::ReadBeamCal()
       m_nameOutputFile(""),
       m_nameFinalOutputFile(""),
       m_nameInputFile(""),
-      m_nRun(0),
-      m_nEvt(0),
       m_probFactor(0.0),
       m_random3(nullptr),
       m_padEnergiesLeft(nullptr),
@@ -81,6 +79,10 @@ ReadBeamCal::ReadBeamCal()
 			      m_probFactor,
 			      double(100.0) ) ;
 
+  registerProcessorParameter("WriteEachEvent", "If true, write the tree for each event", m_writeEachEvent, m_writeEachEvent);
+
+  registerProcessorParameter("EventsPerBX", "If positive, sample randomly when to write", m_eventsPerBX, m_eventsPerBX);
+
   registerProcessorParameter("DetectorName", "The Name of the Detector the collections are from",
                              m_detectorName, m_detectorName);
 
@@ -98,11 +100,22 @@ void ReadBeamCal::init() {
   // usually a good idea to
   printParameters() ;
 
-  m_nEvt = 0;
   m_bcg = ProcessorUtilities::getBeamCalGeo(m_usingDD4HEP, m_detectorName, m_colNameBCal);
   m_padEnergiesLeft = new BCPadEnergies(m_bcg);
   m_padEnergiesRight = new BCPadEnergies(m_bcg);
- 
+  if (m_writeEachEvent) {
+    TString rootFileName = Form("%s_%d.root", m_nameOutputFile.c_str(), m_rootFileCounter++);
+    m_rootfile = TFile::Open(rootFileName, "RECREATE");
+    m_tree = new TTree("bcTree", "bcTree");
+    m_tree->Branch("vec_right", m_padEnergiesRight->getEnergies());
+    m_tree->Branch("vec_left", m_padEnergiesLeft->getEnergies());
+    if (m_eventsPerBX > 0) {
+      m_eventsToCount = m_random3->Poisson(m_eventsPerBX);
+      streamlog_out(MESSAGE) << "Reading " << m_eventsToCount << " events" << std::endl;
+      m_averageNumber += m_eventsToCount;
+    }
+  }
+
 }//init
 
 void ReadBeamCal::processRunHeader( LCRunHeader* ) {
@@ -122,7 +135,7 @@ void ReadBeamCal::processEvent( LCEvent * evt ) {
   } catch (Exception &e) {
     colBCal = 0;
   }
-  m_nEvt ++ ;
+  m_nEvt++;
   if( not colBCal ) return;
 
   CellIDDecoder<SimCalorimeterHit> mydecoder(colBCal);
@@ -152,7 +165,34 @@ void ReadBeamCal::processEvent( LCEvent * evt ) {
 	<< std::endl;
     }
   }//for all entries in the collection
-    
+  --m_eventsToCount;
+
+  if (m_writeEachEvent) {
+    if (m_eventsPerBX < 0) {
+      m_tree->Fill();
+      m_padEnergiesLeft->resetEnergies();
+      m_padEnergiesRight->resetEnergies();
+    } else if (m_eventsPerBX > 0 and m_eventsToCount == 0) {
+      while (m_eventsToCount == 0) {
+        m_tree->Fill();
+        m_padEnergiesLeft->resetEnergies();
+        m_padEnergiesRight->resetEnergies();
+        m_eventsToCount = m_random3->Poisson(m_eventsPerBX);
+        streamlog_out(MESSAGE) << "Reading " << m_eventsToCount << " events  " << m_nEvt << std::endl;
+        m_averageNumber += m_eventsToCount;
+        m_tree->Write();
+        m_rootfile->Write();
+        m_rootfile->Close();
+        delete m_rootfile;
+        TString rootFileName = Form("%s_%d.root", m_nameOutputFile.c_str(), m_rootFileCounter++);
+        streamlog_out(MESSAGE) << "Opening " << rootFileName << std::endl;
+        m_rootfile = TFile::Open(rootFileName, "RECREATE");
+        m_tree = new TTree("bcTree", "bcTree");
+        m_tree->Branch("vec_right", m_padEnergiesRight->getEnergies());
+        m_tree->Branch("vec_left", m_padEnergiesLeft->getEnergies());
+      }
+    }
+  }
   return;
 }//processEvent
 
@@ -164,20 +204,14 @@ void ReadBeamCal::check( LCEvent * ) {
 
 
 void ReadBeamCal::end(){
-
-  streamlog_out ( MESSAGE ) << __PRETTY_FUNCTION__ << " " << name()
-			    << " processed " << m_nEvt << " events."
-			    << std::endl ;
+  streamlog_out(MESSAGE) << __PRETTY_FUNCTION__ << " " << name() << " processed " << m_nEvt << " events." << std::endl;
+  streamlog_out(MESSAGE) << "Used " << m_averageNumber / double(m_rootFileCounter) << " events per bunch crossing "
+                         << " goal was " << m_eventsPerBX << std::endl;
   //Do the average for every bin, and calculate the maximal difference to the mean, which means, we have to loop twice.
 
-  TTree *tree = new TTree("bcTree","bcTree");
   // tree->Branch("h3BC_left",h3BeamCalDeposits_left);
   // tree->Branch("h3BC_right",h3BeamCalDeposits_right);
-  tree->Branch("vec_right",m_padEnergiesRight->getEnergies());
-  tree->Branch("vec_left",m_padEnergiesLeft->getEnergies());
-  tree->Fill();
 
-  TFile* rootfile = TFile::Open(m_nameOutputFile.c_str(), "RECREATE");
 
   // for(unsigned int k = 0; k < bgruns.size(); k++) {
   //   bgruns[k]->Write();
@@ -202,14 +236,16 @@ void ReadBeamCal::end(){
 
   }//Only draw all the things in DEBUG Mode
 
+  m_rootfile->cd();
+  if (not m_writeEachEvent) {
+    m_tree->Fill();
+  }
 
-  tree->Write();
-  // background.Write();
-  // fluctuation.Write();
-  rootfile->Write();
-  rootfile->Close();
-  delete rootfile;
-  rootfile = nullptr;
+  m_tree->Write();
+  m_rootfile->Write();
+  m_rootfile->Close();
+  delete m_rootfile;
+  m_rootfile = nullptr;
   delete m_random3;
   delete m_bcg;
 

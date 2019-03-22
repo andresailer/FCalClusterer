@@ -9,6 +9,8 @@ class BCPadEnergies;
 class BeamCalGeo;
 
 class TRandom3;
+class TFile;
+class TTree;
 
 namespace EVENT {
   class LCEvent;
@@ -55,18 +57,24 @@ class ReadBeamCal : public marlin::Processor {
   std::string m_detectorName = "BeamCal";
 
   //std::string m_pdftitle;
-  int m_nRun ;
-  int m_nEvt ;
+  int m_nRun=0;
+  int m_nEvt=0;
   double m_probFactor;
 
   TRandom3 *m_random3;
+  TFile *m_rootfile=nullptr;
+  TTree *m_tree=nullptr;
 
   BCPadEnergies* m_padEnergiesLeft;
   BCPadEnergies* m_padEnergiesRight;
 
   BeamCalGeo* m_bcg;
   bool m_usingDD4HEP;
-
+  bool m_writeEachEvent=false;
+  int m_rootFileCounter = 0;
+  double m_eventsPerBX = -1;
+  int m_eventsToCount = 0;
+  double m_averageNumber = 0;
 private://to shut the warnings up
   ReadBeamCal(const ReadBeamCal&);
   ReadBeamCal& operator=(const ReadBeamCal&);
