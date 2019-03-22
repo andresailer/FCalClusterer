@@ -5,6 +5,7 @@
  * The larger the number of background files the better the averaging of course
  */
 
+#include "OccupancyUtilities.hh"
 
 #include <BeamCalGeoDD.hh>
 #include <BCPadEnergies.hh>
@@ -26,52 +27,7 @@
 #include <iomanip>
 #include <vector>
 
-using VD=std::vector<double>;
-
-class VVD {
-private:
-  std::map<int, VD> m_vvd{};
-  int m_vecSize;
-
-public:
-  VD& operator[](int selection) {
-    if (m_vvd.find(selection) == m_vvd.end()) {
-      m_vvd[selection] = VD(m_vecSize);
-    }
-    return m_vvd[selection];
-  }
-  explicit VVD(int vecSize) : m_vecSize(vecSize) {}
-
-  void getOccupancy() const {
-    int occupied = 0;
-    int trainPads = 0;
-    for (auto const& vd : m_vvd) {
-      for (auto const& pad : vd.second) {
-        occupied += pad;
-        trainPads += 1;
-      }
-    }
-    std::cout << "Occupied Per Train: " << double(occupied) / double(m_vvd.size()) << std::endl;
-    std::cout << "Train Occupancy is: " << double(occupied) / double(trainPads) << std::endl;
-    std::cout << "NTrains: " << m_vvd.size() << std::endl;
-  }
-};
-
-struct Parameters {
-  double minZRange = 1e-4;
-  double maxZRange = 1.0;
-  double threshold = 0.0;
-  int bxPerTrain = 0.0;
-  std::string detectorName = "BeamCal";
-  std::string compactFile = "";
-  std::vector<std::string> backgroundFiles{};
-};
-
 void calculateOccupancy(const Parameters& par);
-void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, VVD& trainLeft, VVD& trainRight,
-                        int bxPerTrain, double threshold, int maxEPad, int& nBX, double& totalEnergyBX, double& occupancyBX,
-                        double& maxEnergy);
-void drawOccupancy(const Parameters& par, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp);
 
 int main (int argc, char **args) {
   if (argc < 6) {
@@ -90,8 +46,9 @@ int main (int argc, char **args) {
   par.maxZRange = std::atof(args[4]);
   par.bxPerTrain = std::atoi(args[5]);
   par.compactFile = std::string(args[6]);
+  par.files.emplace_back(std::vector<std::string>());
   for (int i = 7; i < argc; ++i) {
-    par.backgroundFiles.emplace_back(args[i]);
+    par.files[0].emplace_back(args[i]);
   }
 
 
@@ -112,16 +69,19 @@ void calculateOccupancy(Parameters const& par) {
 
   BeamCalGeoDD bcg(theDetector, par.detectorName, par.detectorName + "Collection");
 
-  const int maxFullTrainBXs(int(par.backgroundFiles.size() / par.bxPerTrain) * par.bxPerTrain);
+  const int maxFullTrainBXs(int(par.files[0].size() / par.bxPerTrain) * par.bxPerTrain);
+  std::cout << "******************************************************************************" << std::endl;
+  std::cout << par.detectorName << "  " << par.files[0][0] << std::endl;
+  std::cout << "Found " << par.files[0].size() << " files" << std::endl;
   std::cout << "Limiting to " << maxFullTrainBXs << " BXs" << std::endl;
+
   int nBX(0), maxPad(0), maxEPad(0);
   int nPads = bcg.getPadsPerBeamCal();
   VD countLeft(nPads, 0), countRight(nPads, 0);
   VVD trainLeft(nPads), trainRight(nPads);
   double totalEnergy(0.0), maxOccupancy(0.0), averageOccypancy(0.0), maxEnergy(0.0);
 
-  std::cout << "Have " << par.backgroundFiles.size() << " Files" << std::endl;
-  for (auto const& backgroundFile : par.backgroundFiles) {
+  for (auto const& backgroundFile : par.files[0]) {
     double totalEnergyBX = 0.0;
     double occupancyBX = 0;
     readBackgroundFile(backgroundFile, countLeft, countRight, trainLeft, trainRight, par.bxPerTrain, par.threshold, maxEPad,
@@ -172,85 +132,4 @@ void calculateOccupancy(Parameters const& par) {
   trainLeft.getOccupancy();
   trainRight.getOccupancy();
   std::cout << "******************************************************************************" << std::endl;
-}
-
-void drawOccupancy(const Parameters& par, BeamCalGeo const& bcg, std::string const& name, BCPadEnergies const& bcp) {
-  TCanvas canv("cB", "cB", 800, 700);
-  canv.SetRightMargin(0.21);
-  canv.SetLeftMargin(0.15);
-  TH2D occupancyHisto("hOcc","Occupancy;Layer;Radial Pad;Pad Occupancy [1/BX]", bcg.getBCLayers(), 0.5, bcg.getBCLayers()+0.5,
-                      bcg.getBCRings(), -0.5, bcg.getBCRings());
-
-  for (int layer = 0; layer < bcg.getBCLayers(); ++layer) {
-    for (int ring = 0; ring < bcg.getBCRings() ; ++ring) {
-      double averageOccupancy(0);
-      for (int pad = 0; pad <  bcg.getPadsInRing(ring); ++pad) {
-        averageOccupancy += bcp.getEnergy(layer, ring, pad);
-      }
-      averageOccupancy /= double(bcg.getPadsInRing(ring));
-      occupancyHisto.Fill(layer+1, ring, averageOccupancy);
-    }//for each ring
-  }//for each layer
-  occupancyHisto.Draw("colz");
-  canv.SetLogz();
-  canv.Update();
-  RootUtils::MovePaletteHorizontally(&occupancyHisto, 0.0);
-  occupancyHisto.GetZaxis()->SetLabelOffset(-0.01);
-  occupancyHisto.GetZaxis()->SetRangeUser(par.minZRange, par.maxZRange);
-  gPad->Update();
-  canv.Modified();
-  canv.Update();
-  canv.SaveAs(Form("%s_%sOccupancies.eps", par.detectorName.c_str(), name.c_str()));
-  canv.SaveAs(Form("%s_%sOccupancies.C", par.detectorName.c_str(), name.c_str()));
-}
-
-void readBackgroundFile(std::string const& backgroundFile, VD& countLeft, VD& countRight, VVD& trainLeft, VVD& trainRight,
-                        int bxPerTrain, double threshold, int maxEPad, int& nBX, double& totalEnergyBX, double& occupancyBX,
-                        double& maxEnergy) {
-  TTree* tree;
-  VD *depLeft=NULL;
-  VD *depRight=NULL;
-
-  TFile* file = TFile::Open(backgroundFile.c_str());
-  if (not file) {
-    std::cerr << "File not found: "<< backgroundFile  << std::endl;
-    throw std::runtime_error("Failed to find file");
-  }
-
-  file->GetObject("bcTree", tree);
-  if (not tree) {
-    std::cerr << "Tree not found in file " << backgroundFile  << std::endl;
-    file->Close();
-    delete file;
-    throw std::runtime_error("Failed to find tree in file");
-  }
-
-  tree->SetBranchAddress("vec_left" , &depLeft);
-  tree->SetBranchAddress("vec_right", &depRight);
-  for (int i = 0; i < tree->GetEntries(); ++i) {
-    tree->GetEntry(i);
-    nBX++;
-    for (size_t nPad = 0; nPad < countLeft.size();++nPad) {
-      totalEnergyBX += (*depLeft)[nPad];
-      totalEnergyBX += (*depRight)[nPad];
-
-      if (int(nPad) == maxEPad) {
-        maxEnergy += (*depLeft)[nPad];
-        maxEnergy += (*depRight)[nPad];
-      }
-
-      if((*depLeft)[nPad] > threshold) {
-        countLeft[nPad] += 1;
-        trainLeft[(nBX - 1) / bxPerTrain][nPad] = 1;
-        occupancyBX += 1;
-      }
-      if((*depRight)[nPad] > threshold) {
-        countRight[nPad] += 1;
-        trainRight[(nBX - 1) / bxPerTrain][nPad] = 1;
-        occupancyBX += 1;
-      }
-    }
-  }
-  occupancyBX /= 2.0;
-  file->Close();
 }
